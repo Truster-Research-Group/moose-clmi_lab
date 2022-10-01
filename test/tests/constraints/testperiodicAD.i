@@ -120,7 +120,7 @@
     penalty_value = 1.e3
   []
   [periodiclr]
-    type = TestPeriodic
+    type = TestPeriodicAD
     primary_boundary = '11'
     secondary_boundary = '13'
     primary_subdomain = 'primary_right'
@@ -143,7 +143,7 @@
     penalty_value = 1.e3
   []
   [periodicbt]
-    type = TestPeriodic
+    type = TestPeriodicAD
     primary_boundary = '12'
     secondary_boundary = '10'
     primary_subdomain = 'primary_top'

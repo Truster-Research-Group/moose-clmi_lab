@@ -7,12 +7,12 @@
 //* Licensed under LGPL 2.1, please see LICENSE for details
 //* https://www.gnu.org/licenses/lgpl-2.1.html
 
-#include "TestPeriodicBase.h"
+#include "TestPeriodic.h"
 
-registerMooseObject("MooseTestApp", TestPeriodicBase);
+registerMooseObject("MooseTestApp", TestPeriodic);
 
 InputParameters
-TestPeriodicBase::validParams()
+TestPeriodic::validParams()
 {
   InputParameters params = MortarConstraint::validParams();
   params.addRequiredCoupledVar("kappa", "Unknown scalar averaging variable");
@@ -22,7 +22,7 @@ TestPeriodicBase::validParams()
   return params;
 }
 
-TestPeriodicBase::TestPeriodicBase(const InputParameters & parameters)
+TestPeriodic::TestPeriodic(const InputParameters & parameters)
   : DerivativeMaterialInterface<MortarConstraint>(parameters),
     _temp_jump_global(),
     _tau_s(),
@@ -35,26 +35,24 @@ TestPeriodicBase::TestPeriodicBase(const InputParameters & parameters)
     _kappa_aux(coupledScalarValue("kappa_aux")),
     _current_elem_volume(_assembly.elemVolume()),
     _current_side_volume(_assembly.sideElemVolume()),
-    _pen_scale(getParam<Real>("pen_scale")),
-    _ad_u_secondary(_secondary_var.adSln()),
-    _ad_u_primary(_primary_var.adSlnNeighbor())
+    _pen_scale(getParam<Real>("pen_scale"))
 {
 }
 
 // Compute the stability parameters to use for all quadrature points
 void
-TestPeriodicBase::precalculateResidual()
+TestPeriodic::precalculateResidual()
 {
   precalculateStability();
 }
 void
-TestPeriodicBase::precalculateJacobian()
+TestPeriodic::precalculateJacobian()
 {
   precalculateStability();
 }
 
 void
-TestPeriodicBase::computeResidualScalar()
+TestPeriodic::computeResidualScalar()
 {
   std::vector<Real> scalar_residuals(_k_order);
   for (_qp = 0; _qp < _qrule_msm->n_points(); _qp++)
@@ -63,9 +61,9 @@ TestPeriodicBase::computeResidualScalar()
     for (_h = 0; _h < _k_order; _h++)
     {
       scalar_residuals[_h] +=
-          _JxW_msm[_qp] * _coord[_qp] * MetaPhysicL::raw_value(computeQpResidualScalar());
+          _JxW_msm[_qp] * _coord[_qp] * computeQpResidualScalar();
       scalar_residuals[_h] +=
-          _JxW_msm[_qp] * _coord[_qp] * MetaPhysicL::raw_value(computeQpResidualScalarScalar());
+          _JxW_msm[_qp] * _coord[_qp] * computeQpResidualScalarScalar();
     }
   }
   _assembly.processResiduals(scalar_residuals,
@@ -75,61 +73,18 @@ TestPeriodicBase::computeResidualScalar()
 }
 
 void
-TestPeriodicBase::computeJacobianScalar()
+TestPeriodic::computeJacobianScalar()
 {
-  std::vector<ADReal> scalar_residuals(_k_order);
+  _local_ke.resize(_k_order, _k_order);
   for (_qp = 0; _qp < _qrule_msm->n_points(); _qp++)
   {
-    precalculateMaterial();
+    // precalculateMaterial();
     for (_h = 0; _h < _k_order; _h++)
-    {
-      scalar_residuals[_h] += _JxW_msm[_qp] * _coord[_qp] * computeQpResidualScalar();
-      scalar_residuals[_h] += _JxW_msm[_qp] * _coord[_qp] * computeQpResidualScalarScalar();
-    }
+      for (_l = 0; _l < _k_order; _l++)
+        // ke(_h, _l) +=
+        //   _JxW_msm[_qp] * _coord[_qp] * computeQpJacobianScalarScalar();
+        _local_ke(_h, _l) += _JxW_msm[_qp] * _coord[_qp] * computeQpJacobianScalarScalar();
   }
-
-  // Handle secondary
-  _local_ke.resize(_k_order, _secondary_var.dofIndices().size());
-  for (const auto h : make_range(_k_order))
-    for (const auto j : index_range(_secondary_var.dofIndices()))
-    {
-      const auto global_dof_index = _secondary_var.dofIndices()[j];
-      _local_ke(h, j) = scalar_residuals[h].derivatives()[global_dof_index];
-    }
-
-  for (const auto & matrix_tag : _matrix_tags)
-    _assembly.cacheJacobianBlock(_local_ke,
-                                 _kappa_var_ptr->dofIndices(),
-                                 _secondary_var.dofIndices(),
-                                 _kappa_var_ptr->scalingFactor(),
-                                 matrix_tag);
-
-  // Handle primary
-  _local_ke.resize(_k_order, _primary_var.dofIndicesNeighbor().size());
-  for (const auto h : make_range(_k_order))
-    for (const auto j : index_range(_primary_var.dofIndicesNeighbor()))
-    {
-      const auto global_dof_index = _primary_var.dofIndicesNeighbor()[j];
-      _local_ke(h, j) = scalar_residuals[h].derivatives()[global_dof_index];
-    }
-
-  for (const auto & matrix_tag : _matrix_tags)
-    _assembly.cacheJacobianBlock(_local_ke,
-                                 _kappa_var_ptr->dofIndices(),
-                                 _primary_var.dofIndicesNeighbor(),
-                                 _kappa_var_ptr->scalingFactor(),
-                                 matrix_tag);
-
-  // Handle scalar
-  mooseAssert(_k_order == _kappa_var_ptr->dofIndices().size(),
-              "This should be obvious at this point");
-  _local_ke.resize(_k_order, _k_order);
-  for (const auto h : make_range(_k_order))
-    for (const auto j : make_range(_k_order))
-    {
-      const auto global_dof_index = _kappa_var_ptr->dofIndices()[j];
-      _local_ke(h, j) = scalar_residuals[h].derivatives()[global_dof_index];
-    }
 
   for (const auto & matrix_tag : _matrix_tags)
     _assembly.cacheJacobianBlock(_local_ke,
@@ -140,7 +95,7 @@ TestPeriodicBase::computeJacobianScalar()
 }
 
 void
-TestPeriodicBase::computeOffDiagJacobianScalar(Moose::MortarType mortar_type, unsigned int jvar)
+TestPeriodic::computeOffDiagJacobianScalar(Moose::MortarType mortar_type, unsigned int jvar)
 {
   if (jvar != _kappa_var)
     return;
@@ -192,7 +147,7 @@ TestPeriodicBase::computeOffDiagJacobianScalar(Moose::MortarType mortar_type, un
 
   for (_qp = 0; _qp < _qrule_msm->n_points(); _qp++)
   {
-    precalculateMaterial();
+    // precalculateMaterial();
     const Real dV = _JxW_msm[_qp] * _coord[_qp];
     for (_h = 0; _h < _k_order; _h++)
     {
@@ -209,32 +164,32 @@ TestPeriodicBase::computeOffDiagJacobianScalar(Moose::MortarType mortar_type, un
     _assembly.cacheJacobianBlock(
         _local_ke, dof_indices, _kappa_var_ptr->dofIndices(), scaling_factor, matrix_tag);
 
-  // _local_ke.resize(_k_order, test_space_size);
+  _local_ke.resize(_k_order, test_space_size);
 
-  // for (_qp = 0; _qp < _qrule_msm->n_points(); _qp++)
-  // {
-  //   const Real dV = _JxW_msm[_qp] * _coord[_qp];
-  //   for (_h = 0; _h < _k_order; _h++)
-  //   {
-  //     for (_i = 0; _i < test_space_size; _i++)
-  //     { // This assumes Galerkin, i.e. the test and trial functions are the
-  //       // same
-  //       _j = _i;
-  //       _local_ke(_h, _i) += computeQpConstraintJacobian(mortar_type, jvar) * dV;
-  //     }
-  //   }
-  // }
+  for (_qp = 0; _qp < _qrule_msm->n_points(); _qp++)
+  {
+    const Real dV = _JxW_msm[_qp] * _coord[_qp];
+    for (_h = 0; _h < _k_order; _h++)
+    {
+      for (_i = 0; _i < test_space_size; _i++)
+      { // This assumes Galerkin, i.e. the test and trial functions are the
+        // same
+        _j = _i;
+        _local_ke(_h, _i) += computeQpConstraintJacobian(mortar_type, jvar) * dV;
+      }
+    }
+  }
 
-  // for (const auto & matrix_tag : _matrix_tags)
-  //   _assembly.cacheJacobianBlock(_local_ke,
-  //                                _kappa_var_ptr->dofIndices(),
-  //                                dof_indices,
-  //                                _kappa_var_ptr->scalingFactor(),
-  //                                matrix_tag);
+  for (const auto & matrix_tag : _matrix_tags)
+    _assembly.cacheJacobianBlock(_local_ke,
+                                 _kappa_var_ptr->dofIndices(),
+                                 dof_indices,
+                                 _kappa_var_ptr->scalingFactor(),
+                                 matrix_tag);
 }
 
 Real
-TestPeriodicBase::computeQpResidual(const Moose::MortarType mortar_type)
+TestPeriodic::computeQpResidual(const Moose::MortarType mortar_type)
 {
 
   // precalculateMaterial();
@@ -266,55 +221,51 @@ TestPeriodicBase::computeQpResidual(const Moose::MortarType mortar_type)
   return r;
 }
 
-ADReal
-TestPeriodicBase::computeQpResidualScalar()
+Real
+TestPeriodic::computeQpResidualScalar()
 {
 
   /// Stability/penalty term for residual of scalar variable
-  ADReal r = (_pen_scale * _tau_s) * _temp_jump_global;
+  Real r = (_pen_scale * _tau_s) * _temp_jump_global;
   RealVectorValue dx(_phys_points_primary[_qp] - _phys_points_secondary[_qp]);
   RealVectorValue hack(7.0, 3.0, 0.0);
 
   r *= -dx(_h);
 
-  return r ;// hack(_h);
+  return r ;/// hack(_h);
 }
 
-ADReal
-TestPeriodicBase::computeQpResidualScalarScalar()
+Real
+TestPeriodic::computeQpResidualScalarScalar()
 {
 
   /// Stability/penalty term for residual of scalar variable
-  ADRealVectorValue kappa_vec(_kappa[0], _kappa[1], 0);
-  Moose::derivInsert(kappa_vec(0).derivatives(), _kappa_var_ptr->dofIndices()[0], 1);
-  Moose::derivInsert(kappa_vec(1).derivatives(), _kappa_var_ptr->dofIndices()[1], 1);
+  RealVectorValue kappa_vec(_kappa[0], _kappa[1], 0);
   RealVectorValue kappa_aux_vec(_kappa_aux[0], _kappa_aux[1], 0);
   RealVectorValue dx(_phys_points_primary[_qp] - _phys_points_secondary[_qp]);
   RealVectorValue hack(7.0, 3.0, 0.0);
 
-  ADReal r = 0.0;
+  Real r = 0.0;
   r += dx(_h) * (_pen_scale * _tau_s) * (kappa_vec * dx);
   r -= dx(_h) * (kappa_aux_vec * _normals[_qp]);
 
   return r ;/// hack(_h);
 }
 
-// Real
-// TestPeriodicBase::computeQpJacobianScalarScalar()
-// {
+Real
+TestPeriodic::computeQpJacobianScalarScalar()
+{
 
-//   /// Stability/penalty term for Jacobian of scalar variable
-//   RealVectorValue dx(_phys_points_primary[_qp] - _phys_points_secondary[_qp]);
-//   RealVectorValue hack(7.0, 3.0, 0.0);
+  /// Stability/penalty term for Jacobian of scalar variable
+  RealVectorValue dx(_phys_points_primary[_qp] - _phys_points_secondary[_qp]);
 
-//   Real jac = dx(_h) * (_pen_scale * _tau_s) * dx(_l);
+  Real jac = dx(_h) * (_pen_scale * _tau_s) * dx(_l);
 
-//   return jac / hack(_h);
-// }
+  return jac;
+}
 
 Real
-TestPeriodicBase::computeQpBaseJacobian(const Moose::MortarType mortar_type,
-                                        const unsigned int /*jvar*/)
+TestPeriodic::computeQpBaseJacobian(const Moose::MortarType mortar_type, const unsigned int jvar)
 {
 
   // precalculateMaterial();
@@ -341,8 +292,7 @@ TestPeriodicBase::computeQpBaseJacobian(const Moose::MortarType mortar_type,
 }
 
 Real
-TestPeriodicBase::computeQpConstraintJacobian(const Moose::MortarType mortar_type,
-                                              const unsigned int /*jvar*/)
+TestPeriodic::computeQpConstraintJacobian(const Moose::MortarType mortar_type, const unsigned int jvar)
 {
 
   // precalculateMaterial(); // may not be needed...
@@ -371,7 +321,7 @@ TestPeriodicBase::computeQpConstraintJacobian(const Moose::MortarType mortar_typ
 }
 
 void
-TestPeriodicBase::precalculateStability()
+TestPeriodic::precalculateStability()
 {
   // const unsigned int elem_b_order = _secondary_var.order();
   // double h_elem =
@@ -384,7 +334,7 @@ TestPeriodicBase::precalculateStability()
 
 // Compute temperature jump and flux average/jump
 void
-TestPeriodicBase::precalculateMaterial()
+TestPeriodic::precalculateMaterial()
 {
-  _temp_jump_global = (_ad_u_primary[_qp] - _ad_u_secondary[_qp]);
+  _temp_jump_global = (_u_primary[_qp] - _u_secondary[_qp]);
 }

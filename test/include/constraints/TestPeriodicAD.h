@@ -23,11 +23,11 @@
 /// diagonal Jacobian terms
 ///
 
-class TestPeriodicBase : public DerivativeMaterialInterface<MortarConstraint>
+class TestPeriodicAD : public DerivativeMaterialInterface<MortarConstraint>
 {
 public:
   static InputParameters validParams();
-  TestPeriodicBase(const InputParameters & parameters);
+  TestPeriodicAD(const InputParameters & parameters);
 
 protected:
   /**
