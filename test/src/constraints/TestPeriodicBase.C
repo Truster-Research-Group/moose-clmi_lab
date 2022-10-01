@@ -277,7 +277,7 @@ TestPeriodicBase::computeQpResidualScalar()
 
   r *= -dx(_h);
 
-  return r / hack(_h);
+  return r ;// hack(_h);
 }
 
 ADReal
@@ -296,7 +296,7 @@ TestPeriodicBase::computeQpResidualScalarScalar()
   r += dx(_h) * (_pen_scale * _tau_s) * (kappa_vec * dx);
   r -= dx(_h) * (kappa_aux_vec * _normals[_qp]);
 
-  return r / hack(_h);
+  return r ;/// hack(_h);
 }
 
 // Real
